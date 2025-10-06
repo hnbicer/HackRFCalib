@@ -29,15 +29,15 @@ from SoapySDR import *
 # ─────────────────────────────────────────────────────────────────────────────
 CONFIG = {
     # Sweep grid
-    "FREQ_START_MHZ": 2400,
-    "FREQ_STOP_MHZ":  2480,
-    "FREQ_STEP_MHZ":  20,
+    "FREQ_START_MHZ": 100,
+    "FREQ_STOP_MHZ":  6000,
+    "FREQ_STEP_MHZ":  100,
 
     # Settings grids
-    "SAMPLE_RATES": [10e6],         # e.g., [10e6, 4e6]
-    "LNA_LIST":     [16],           # e.g., [0, 16, 24, 32, 40]
-    "VGA_LIST":     [16],           # e.g., [0, 16, 32, 48]
-    "AMP_LIST":     [0, 1],         # 0=off, >0=on
+    "SAMPLE_RATES": [1e6],         # e.g., [10e6, 4e6]
+    "LNA_LIST":     [0,8,16],           # e.g., [0, 16, 24, 32, 40]
+    "VGA_LIST":     [20],           # e.g., [0, 16, 32, 48]
+    "AMP_LIST":     [0],         # 0=off, >0=on
 
     # Capture
     "SAMPLES":      1_048_576,      # complex samples per point
@@ -49,7 +49,7 @@ CONFIG = {
 
     # SigGen (RF ON/OFF is handled automatically)
     "SIGGEN_IP":        "10.173.170.235",
-    "SIGGEN_POWER_DBM": -40.0,      # output at SigGen
+    "SIGGEN_POWER_DBM": -30.0,      # output at SigGen
     "CABLE_LOSS_DB":     0.0,       # loss from SigGen to SDR input
 
     # Put the tone slightly off DC to avoid DC spur
@@ -86,7 +86,7 @@ def find_single_hackrf_serial():
     if len(hackrfs) > 1:
         raise RuntimeError("Multiple HackRF devices found; connect only one.")
     info = hackrfs[0]
-    serial_full = info.get("serial", "")
+    serial_full = info["serial"]
     if not serial_full or len(serial_full) < 16:
         raise RuntimeError("Invalid or missing HackRF serial.")
     return serial_full[-16:], info
@@ -110,25 +110,42 @@ def teardown_stream(dev, rx):
 
 def capture_iq(dev, rx, want_samples, read_block, timeout_us, warmup_reads, retries):
     buf = np.empty(read_block, np.complex64)
-    # warmup
+
+    # Warm-up reads (no retries)
     for _ in range(max(0, warmup_reads)):
-        dev.readStream(rx, [buf], read_block, timeoutUs=timeout_us)
+        try:
+            dev.readStream(rx, [buf], read_block, timeoutUs=timeout_us)
+        except Exception:
+            pass  # Ignore warmup errors
 
     chunks = []
     total = 0
     overflows = 0
+    attempts_left = retries
+
     while total < want_samples:
-        sr = dev.readStream(rx, [buf], read_block, timeoutUs=timeout_us)
-        if sr.ret < 0:
-            raise RuntimeError(f"SoapySDR read error: {sr.ret}")
-        if sr.flags & SOAPY_SDR_OVERFLOW:
-            overflows += 1
-        if sr.ret > 0:
-            take = min(sr.ret, want_samples - total)
-            chunks.append(buf[:take].copy())
-            total += take
-        else:
-            time.sleep(0.01)
+        try:
+            sr = dev.readStream(rx, [buf], read_block, timeoutUs=timeout_us)
+            if sr.ret < 0:
+                raise RuntimeError(f"SoapySDR read error: {sr.ret}")
+            if sr.flags & SOAPY_SDR_OVERFLOW:
+                overflows += 1
+            if sr.ret > 0:
+                take = min(sr.ret, want_samples - total)
+                chunks.append(buf[:take].copy())
+                total += take
+            else:
+                time.sleep(0.01)
+
+        except Exception as e:
+            if attempts_left > 0:
+                attempts_left -= 1
+                print(f"[Retrying] Exception occurred: {e}. Retries left: {attempts_left}")
+                time.sleep(0.05)
+                continue
+            else:
+                raise RuntimeError(f"Exceeded maximum retries. Last error: {e}")
+
     return (np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]), overflows
 
 def quick_metrics(iq: np.ndarray):
