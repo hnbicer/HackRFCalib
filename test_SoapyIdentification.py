@@ -4,7 +4,6 @@ import sys
 import SoapySDR
 from SoapySDR import *  # SOAPY_SDR_*
 
-# Friendly names for common drivers
 FRIENDLY = {
     "rtlsdr": "RTL-SDR",
     "hackrf": "HackRF",
@@ -17,7 +16,6 @@ FRIENDLY = {
 }
 
 def summarize_kwargs(kwargs):
-    # SoapySDR returns a dict-like (SoapySDR.Kwargs)
     g = kwargs.get
     driver = g("driver", "unknown")
     label  = g("label", "")
@@ -49,7 +47,6 @@ def list_devices():
         print(f"[{i}] {name}  (driver='{driver}')")
         if tail:
             print(f"    {tail}")
-        # Try to open briefly and query a couple of properties
         try:
             dev = SoapySDR.Device(kw)
             rx_ch = dev.getNumChannels(SOAPY_SDR_RX)
@@ -73,12 +70,10 @@ if __name__ == "__main__":
     # List everything
     devs = list_devices()
 
-    # Quick checks you might care about
     print("Quick checks:")
-    print(f"  • Any RTL-SDR connected?  {'YES' if any_connected('rtlsdr') else 'NO'}")
-    print(f"  • Any HackRF connected?   {'YES' if any_connected('hackrf') else 'NO'}")
+    print(f"  Any RTL-SDR connected?  {'YES' if any_connected('rtlsdr') else 'NO'}")
+    print(f"  Any HackRF connected?   {'YES' if any_connected('hackrf') else 'NO'}")
 
-    # Optional: accept a driver name on the command line to check just that
     if len(sys.argv) > 1:
         drv = sys.argv[1]
         print(f"  • Any '{drv}' connected?  {'YES' if any_connected(drv) else 'NO'}")
